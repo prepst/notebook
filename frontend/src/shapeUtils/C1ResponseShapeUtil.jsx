@@ -1,0 +1,265 @@
+import { BaseBoxShapeUtil, HTMLContainer } from "tldraw";
+import React, { memo, useLayoutEffect, useRef } from "react";
+import { C1Component } from "@thesysai/genui-sdk";
+import { ThemeProvider } from "@crayonai/react-ui";
+
+// Memoized component to prevent unnecessary re-renders
+const C1ResponseComponent = memo(({ shape, editor }) => {
+  const contentRef = useRef(null);
+  const hasContent =
+    shape.props.c1Response && shape.props.c1Response.length > 0;
+  const isStreaming = shape.props.isStreaming || false;
+  const isInteracting = shape.props.isInteracting || false;
+
+  // Get theme from editor
+  const isDarkMode = editor.user.getIsDarkMode();
+  const themeMode = isDarkMode === true ? "dark" : "light";
+
+  // Auto-resize as content grows, only expanding height to avoid jitter
+  useLayoutEffect(() => {
+    if (!contentRef.current || !hasContent) return;
+
+    let rafId = null;
+    let lastUpdate = 0;
+
+    const scheduleHeightUpdate = (force = false) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (!contentRef.current) return;
+
+        const measuredHeight = Math.max(
+          240,
+          contentRef.current.scrollHeight + 48
+        );
+
+        const heightDelta = measuredHeight - shape.props.h;
+        const now = Date.now();
+
+        if (!force) {
+          if (heightDelta < 12) return; // Only expand when noticeably larger
+          if (now - lastUpdate < 120) return; // Throttle updates
+        }
+
+        lastUpdate = now;
+        editor.updateShape({
+          id: shape.id,
+          type: shape.type,
+          props: {
+            ...shape.props,
+            h: measuredHeight,
+          },
+        });
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => scheduleHeightUpdate());
+    resizeObserver.observe(contentRef.current);
+    scheduleHeightUpdate(true);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+    };
+  }, [editor, hasContent, shape.id, shape.props, shape.type]);
+
+  if (!hasContent) {
+    return (
+      <HTMLContainer>
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "2px dashed",
+            borderColor: isDarkMode ? "#4B5563" : "#D1D5DB",
+            borderRadius: "12px",
+            padding: "24px",
+            background: isDarkMode
+              ? "rgba(31, 41, 55, 0.5)"
+              : "rgba(249, 250, 251, 1)",
+          }}
+        >
+          <div
+            style={{
+              width: "32px",
+              height: "32px",
+              border: "2px solid transparent",
+              borderTopColor: "#3B82F6",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+            }}
+          />
+          <p style={{ fontSize: "14px", color: "#6B7280" }}>Generating UI...</p>
+        </div>
+      </HTMLContainer>
+    );
+  }
+
+  return (
+    <HTMLContainer
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        overflow: "visible",
+        pointerEvents: "all",
+        minHeight: shape.props.h,
+        position: "relative",
+      }}
+    >
+      <div ref={contentRef} style={{ width: "100%" }}>
+        {shape.props.prompt && (
+          <div
+            style={{
+              padding: "8px 12px",
+              marginBottom: "12px",
+              borderRadius: "6px",
+              border: "1px solid",
+              fontSize: "14px",
+              fontWeight: "500",
+              backgroundColor: isDarkMode ? "#1F2937" : "#EFF6FF",
+              borderColor: isDarkMode ? "#374151" : "#BFDBFE",
+              color: isDarkMode ? "#E5E7EB" : "#1E40AF",
+            }}
+          >
+            <span style={{ fontWeight: "600" }}>Q: </span>
+            {shape.props.prompt}
+          </div>
+        )}
+
+        <ThemeProvider mode={themeMode}>
+          <div
+            style={{
+              background: isDarkMode ? "#111827" : "#FFFFFF",
+              borderRadius: "8px",
+              borderLeft: "6px solid #10B981",
+              overflow: "hidden",
+              position: "relative",
+              pointerEvents: "auto",
+              cursor: isInteracting ? "default" : "pointer",
+            }}
+          >
+            {!isInteracting && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(0, 0, 0, 0.02)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  pointerEvents: "auto",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "8px 16px",
+                    background: isDarkMode
+                      ? "rgba(31, 41, 55, 0.9)"
+                      : "rgba(255, 255, 255, 0.9)",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: isDarkMode ? "#E5E7EB" : "#6B7280",
+                    border: `1px solid ${isDarkMode ? "#374151" : "#E5E7EB"}`,
+                    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+                  }}
+                >
+                  Double-click to interact
+                </div>
+              </div>
+            )}
+            <div style={{ pointerEvents: isInteracting ? "auto" : "none" }}>
+              <C1Component
+                c1Response={shape.props.c1Response}
+                isStreaming={isStreaming}
+              />
+            </div>
+          </div>
+        </ThemeProvider>
+      </div>
+    </HTMLContainer>
+  );
+});
+
+C1ResponseComponent.displayName = "C1ResponseComponent";
+
+export class C1ResponseShapeUtil extends BaseBoxShapeUtil {
+  static type = "c1-response";
+
+  getDefaultProps() {
+    return {
+      w: 600,
+      h: 300,
+      c1Response: "",
+      isStreaming: false,
+      prompt: "",
+      isInteracting: false,
+    };
+  }
+
+  onResize = (shape, info) => {
+    const { scaleX } = info;
+    return {
+      props: {
+        ...shape.props,
+        w: Math.max(400, shape.props.w * scaleX),
+        // Keep height auto-managed by content
+      },
+    };
+  };
+
+  component = (shape) => {
+    return <C1ResponseComponent shape={shape} editor={this.editor} />;
+  };
+
+  // Prevent text editing on double-click
+  canEdit = () => {
+    return false;
+  };
+
+  // Handle double-click to toggle interaction mode
+  onDoubleClick = (shape) => {
+    // Toggle interaction state
+    this.editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      props: {
+        ...shape.props,
+        isInteracting: !shape.props.isInteracting,
+      },
+    });
+  };
+
+  indicator(shape) {
+    return <rect width={shape.props.w} height={shape.props.h} />;
+  }
+}
+
+// Add keyframe animations
+if (typeof document !== "undefined") {
+  const existingStyle = document.getElementById("c1-response-animations");
+  if (!existingStyle) {
+    const style = document.createElement("style");
+    style.id = "c1-response-animations";
+    style.textContent = `
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
